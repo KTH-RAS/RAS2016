@@ -1,0 +1,29 @@
+<launch>
+    <!-- Machine settings. See http://www.ros.org/wiki/roslaunch/XML/machine -->
+    <machine name="local_alt" address="localhost" default="true" />
+    <!-- phidgets motor control HC -->
+    <node pkg="phidgets" type="motor_control_hc" name="motor_control_hc" respawn="false">
+        <!-- phidget device serial number -->
+        <param name="serial" value="472395" />
+        <param name="invert_forward" value="true" />
+        <param name="timeout_sec" value="0.1" />
+    </node>
+    <!-- phidgets 8/8/8 interface kit -->
+    <!-- <node pkg="phidgets" type="interface_kit" name="interface_kit" respawn="true"> --> 
+    <!--    <param name="serial" value="-1" /> -->
+    <!-- </node> -->
+     <node pkg="phidgets" type="motor_control_hc" name="motor_control_hc2" respawn="false">
+        <!-- phidget device serial number -->
+        <param name="serial" value="472362" />
+        <param name="invert_rotation" value="true" />
+        <param name="timeout_sec" value="0.1" />
+    </node>
+
+    <node pkg="keyboard_event_handler" type="keyboard.py" name="keyboard_event_handler" args="472362 472395" output="screen">
+
+    </node>
+
+
+
+
+</launch>
