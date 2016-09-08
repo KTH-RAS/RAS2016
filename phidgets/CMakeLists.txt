@@ -18,7 +18,7 @@ find_package(catkin REQUIRED COMPONENTS roscpp rospy std_msgs nav_msgs geometry_
 set(CMAKE_BUILD_TYPE Debug)
 
 include_directories(
-  include 
+  include
   ${catkin_INCLUDE_DIRS}
   ${CMAKE_CURRENT_BINARY_DIR}
 
@@ -71,7 +71,7 @@ generate_messages(
 )
 
 catkin_package(
-  INCLUDE_DIRS 
+  INCLUDE_DIRS
 #  LIBRARIES robot_state_viewer
   CATKIN_DEPENDS roscpp rospy std_msgs sensor_msgs nav_msgs tf sound_play move_base_msgs actionlib rviz message_runtime roscpp_serialization
 #  DEPENDS system_lib
@@ -99,6 +99,9 @@ add_dependencies(high_speed_encoder_client phidgets_generate_messages_cpp)
 
 add_executable(motor_control_hc src/motor_control_hc.cpp)
 add_dependencies(motor_control_hc phidgets_generate_messages_cpp)
+
+add_executable(motor src/motor.cpp)
+add_dependencies(motor phidgets_generate_messages_cpp)
 
 add_executable(motor_control_hc_client src/motor_control_hc_client.cpp)
 add_dependencies(motor_control_hc_client phidgets_generate_messages_cpp)
@@ -190,6 +193,7 @@ target_link_libraries(high_speed_encoder phidget21 ${catkin_LIBRARIES})
 target_link_libraries(high_speed_encoder_client phidget21 ${catkin_LIBRARIES})
 
 target_link_libraries(motor_control_hc phidget21 ${catkin_LIBRARIES})
+target_link_libraries(motor phidget21 ${catkin_LIBRARIES})
 target_link_libraries(motor_control_hc_client phidget21 ${catkin_LIBRARIES})
 
 target_link_libraries(interface_kit phidget21 ${catkin_LIBRARIES})
