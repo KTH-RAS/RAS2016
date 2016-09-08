@@ -43,38 +43,14 @@
 CPhidgetMotorControlHandle phid;
 
 // motor controller state publisher
-ros::Publisher motors_pub;
+ros::Publisher motor_pub;
 
-float speed = 20;
+// motor velocity publisher
+ros::Publisher motor_vel_pub;
+
 float acceleration = 20;
-bool x_forward = true;
-bool invert_rotation = false;
-bool invert_forward = false;
-double rotation_offset = 0;
-
-nav_msgs::Odometry odom;
-double current_linear_velocity = 0;
-double current_angular_velocity = 0;
-double linear_velocity_proportional = 0.1;
-double linear_velocity_integral = 0.0;
-double linear_velocity_derivative = 0.0;
-double angular_velocity_proportional = 0.1;
-double angular_velocity_integral = 0.0;
-double angular_velocity_derivative = 0.0;
-double max_angular_velocity = 0.1;
-double linear_deadband = 0.02;
-double angular_deadband = 0.02;
-double max_angular_error = 10*3.1415927/180.0;
-double max_velocity_error = 0.05;
-double max_angular_accel = 0.5;
-double max_linear_accel = 0.3;
-double ITerm[2];
-double last_v=0, last_angv=0;
-
-bool odometry_active = false;
-
+bool invert_motor = false;
 ros::Time last_velocity_command;
-
 bool motors_active = false;
 bool initialised = false;
 
@@ -116,7 +92,7 @@ int InputChangeHandler(CPhidgetMotorControlHandle MC, void *usrptr, int Index, i
   m.index = Index;
   m.value_type = 1;
   m.value = (float)State;
-  if (initialised) motors_pub.publish(m);
+  if (initialised) motor_pub.publish(m);
   //ROS_INFO("Motor input %d Inputs %d", Index, State);
   return 0;
 }
@@ -127,7 +103,7 @@ int VelocityChangeHandler(CPhidgetMotorControlHandle MC, void *usrptr, int Index
   m.index = Index;
   m.value_type = 2;
   m.value = (float)Value;
-  if (initialised) motors_pub.publish(m);
+  if (initialised) motor_pub.publish(m);
   //ROS_INFO("Motor %d Velocity %.2f", Index, (float)Value);
   return 0;
 }
@@ -138,7 +114,7 @@ int CurrentChangeHandler(CPhidgetMotorControlHandle MC, void *usrptr, int Index,
   m.index = Index;
   m.value_type = 3;
   m.value = (float)Value;
-  if (initialised) motors_pub.publish(m);
+  if (initialised) motor_pub.publish(m);
   //ROS_INFO("Motor %d Current %.2f", Index, (float)Value);
   return 0;
 }
@@ -209,133 +185,129 @@ bool attach(CPhidgetMotorControlHandle &phid, int serial_number)
     "%d to be attached....", serial_number);
   }
   int result;
-  if((result =
-    CPhidget_waitForAttachment((CPhidgetHandle)phid, 10000)))
-    {
-      const char *err;
-      CPhidget_getErrorDescription(result, &err);
-      ROS_ERROR("Problem waiting for motor " \
-      "attachment: %s", err);
-      return false;
-    }
-    else return true;
-  }
-
-  /*!
-  * \brief disconnect the motor controller
-  */
-  void disconnect(CPhidgetMotorControlHandle &phid)
+  if((result = CPhidget_waitForAttachment((CPhidgetHandle)phid, 10000)))
   {
-    ROS_INFO("Closing...");
-    CPhidget_close((CPhidgetHandle)phid);
-    CPhidget_delete((CPhidgetHandle)phid);
+    const char *err;
+    CPhidget_getErrorDescription(result, &err);
+    ROS_ERROR("Problem waiting for motor " \
+    "attachment: %s", err);
+    return false;
+  }
+  else return true;
+}
+
+/*!
+* \brief disconnect the motor controller
+*/
+void disconnect(CPhidgetMotorControlHandle &phid)
+{
+  ROS_INFO("Closing...");
+  CPhidget_close((CPhidgetHandle)phid);
+  CPhidget_delete((CPhidgetHandle)phid);
+}
+
+/*!
+* \brief callback when a velocity command is received
+* \param ptr encoder parameters
+*/
+void velocityCommandCallback(const geometry_msgs::Twist::ConstPtr& ptr)
+{
+  if (initialised) {
+    geometry_msgs::Twist m = *ptr;
+    float motor_speed = m.angular.z;
+
+    if(invert_motor) motor_speed = -motor_speed;
+
+    ros::Time current_time = ros::Time::now();
+    // ticks per second, for polulo motor 24 tics per round
+    CPhidgetMotorControl_setVelocity (phid, 0, motor_speed);
+    CPhidgetMotorControl_setAcceleration (phid, 0, acceleration);
+
+    last_velocity_command = current_time;
+    motors_active = true;
+  }
+}
+
+void stop_motors()
+{
+  CPhidgetMotorControl_setVelocity (phid, 0, 0);
+  motors_active = false;
+}
+
+int main(int argc, char* argv[])
+{
+  ros::init(argc, argv, "phidgets_motor_control_hc");
+  ros::NodeHandle n;
+  ros::NodeHandle nh("~");
+  int serial_number = -1;
+  nh.getParam("serial", serial_number);
+  std::string name = "motorcontrol";
+  nh.getParam("name", name);
+  nh.getParam("invert_motor", invert_motor);
+  if (serial_number==-1) {
+    nh.getParam("serial_number", serial_number);
   }
 
-  /*!
-  * \brief callback when a velocity command is received
-  * \param ptr encoder parameters
-  */
-  void velocityCommandCallback(const geometry_msgs::Twist::ConstPtr& ptr){
-    if (initialised) {
-      geometry_msgs::Twist m = *ptr;
-      float motor_speed = m.angular.z;
+  std::string topic_path = "phidgets/";
+  nh.getParam("topic_path", topic_path);
+  float timeout_sec = 0.5;
+  nh.getParam("timeout", timeout_sec);
+  int frequency = 30;
+  nh.getParam("frequency", frequency);
 
+  if (attach(phid, serial_number)) {
+    display_properties(phid);
 
-      if(invert_forward) motor_speed = -motor_speed;
-
-      ros::Time current_time = ros::Time::now();
-      // ticks per second, for polulo motor 24 tics per round
-      CPhidgetMotorControl_setVelocity (phid, 0, motor_speed);
-      CPhidgetMotorControl_setAcceleration (phid, 0, acceleration);
-
-      last_velocity_command = current_time;
-      motors_active = true;
+    const int buffer_length = 100;
+    std::string topic_name = topic_path + name;
+    std::string service_name = name;
+    if (serial_number > -1) {
+      char ser[10];
+      sprintf(ser, "%d", serial_number);
+      topic_name += "/";
+      topic_name += ser;
+      service_name += "/";
+      service_name += ser;
     }
-  }
+    motor_pub =
+    n.advertise<phidgets::motor_params>(topic_name, buffer_length);
 
-  void stop_motors()
-  {
-    CPhidgetMotorControl_setVelocity (phid, 0, 0);
-    motors_active = false;
-  }
+    std::string cmd_vel_top = name + "/" + "cmd_vel";
+    std::string vel_top = name + "/" + "motor_vel";
 
-  int main(int argc, char* argv[])
-  {
-    ros::init(argc, argv, "phidgets_motor_control_hc");
-    ros::NodeHandle n;
-    ros::NodeHandle nh("~");
-    int serial_number = -1;
-    nh.getParam("serial", serial_number);
-    std::string name = "motorcontrol";
-    nh.getParam("name", name);
-    nh.getParam("x_forward", x_forward);
-    nh.getParam("rotation", rotation_offset);
-    nh.getParam("invert_rotation", invert_rotation);
-    if (serial_number==-1) {
-      nh.getParam("serial_number", serial_number);
-    }
+    // receive velocity commands
+    ros::Subscriber command_velocity_sub =
+    n.subscribe(cmd_vel_top.data(), 1, velocityCommandCallback);
 
-    std::string topic_path = "phidgets/";
-    nh.getParam("topic_path", topic_path);
-    float timeout_sec = 0.5;
-    nh.getParam("timeout", timeout_sec);
-    int v=0;
-    nh.getParam("speed", v);
-    if (v>0) speed = v;
-    int frequency = 30;
-    nh.getParam("frequency", frequency);
 
-    if (attach(phid, serial_number)) {
-      display_properties(phid);
 
-      const int buffer_length = 100;
-      std::string topic_name = topic_path + name;
-      std::string service_name = name;
-      if (serial_number > -1) {
-        char ser[10];
-        sprintf(ser, "%d", serial_number);
-        topic_name += "/";
-        topic_name += ser;
-        service_name += "/";
-        service_name += ser;
+    initialised = true;
+    ros::Rate loop_rate(frequency);
+
+    while (ros::ok()) {
+      ros::spinOnce();
+      loop_rate.sleep();
+
+
+      // SAFETY FEATURE
+      // if a velocity command has not been received
+      // for a period of time then stop the motors
+      double time_since_last_command_sec = (ros::Time::now() -
+      last_velocity_command).toSec();
+
+      if ((motors_active) &&
+      (time_since_last_command_sec > timeout_sec)) {
+        stop_motors();
+        ROS_WARN("No velocity command received - " \
+        "motors stopped");
+      }else {
+        double motor_speed;
+        CPhidgetMotorControl_getVelocity(phid, 0, &(motor_speed));
+        ROS_INFO("Velocity: %f",motor_speed);
       }
-      motors_pub =
-      n.advertise<phidgets::motor_params>(topic_name, buffer_length);
-
-      std::string cmd_vel_top = "cmd_vel";
-      std::stringstream ss;
-      ss<<serial_number;
-
-      cmd_vel_top +="/";
-      cmd_vel_top += ss.str();
-
-      // receive velocity commands
-      ros::Subscriber command_velocity_sub =
-      n.subscribe(cmd_vel_top.data(), 1, velocityCommandCallback);
-
-
-      initialised = true;
-      ros::Rate loop_rate(frequency);
-
-      while (ros::ok()) {
-        ros::spinOnce();
-        loop_rate.sleep();
-
-        // SAFETY FEATURE
-        // if a velocity command has not been received
-        // for a period of time then stop the motors
-        double time_since_last_command_sec = (ros::Time::now() -
-        last_velocity_command).toSec();
-
-        if ((motors_active) &&
-        (time_since_last_command_sec > timeout_sec)) {
-          stop_motors();
-          ROS_WARN("No velocity command received - " \
-          "motors stopped");
-        }
-      }
-
-      disconnect(phid);
     }
-    return 0;
+
+    disconnect(phid);
   }
+  return 0;
+}
