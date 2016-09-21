@@ -36,8 +36,10 @@
 #include <sstream>
 #include <phidget21.h>
 #include <geometry_msgs/Twist.h>
+#include <std_msgs/Float32.h>
 #include <nav_msgs/Odometry.h>
 #include "phidgets/motor_params.h"
+#include "phidgets/encoder_request.h"
 
 // handle
 CPhidgetMotorControlHandle phid;
@@ -54,7 +56,17 @@ ros::Time last_velocity_command;
 bool motors_active = false;
 bool initialised = false;
 
-
+bool enc_req(phidgets::encoder_request::Request &req, phidgets::encoder_request::Response &res){
+  int enc_count = 0;
+  if (req.cmd == 0){
+    CPhidgetMotorControl_getEncoderPosition(phid,0, &(enc_count));
+    CPhidgetMotorControl_setEncoderPosition(phid, 0, 0);
+    res.enc = enc_count;
+  }else{
+    CPhidgetMotorControl_getEncoderPosition(phid,0, &(enc_count));
+    res.enc = enc_count;
+  }
+}
 
 int AttachHandler(CPhidgetHandle phid, void *userptr)
 {
@@ -210,16 +222,15 @@ void disconnect(CPhidgetMotorControlHandle &phid)
 * \brief callback when a velocity command is received
 * \param ptr encoder parameters
 */
-void velocityCommandCallback(const geometry_msgs::Twist::ConstPtr& ptr)
+void velocityCommandCallback(const std_msgs::Float32::ConstPtr& ptr)
 {
   if (initialised) {
-    geometry_msgs::Twist m = *ptr;
-    float motor_speed = m.angular.z;
+    std_msgs::Float32 m = *ptr;
+    float motor_speed = m.data;
 
     if(invert_motor) motor_speed = -motor_speed;
 
     ros::Time current_time = ros::Time::now();
-    // ticks per second, for polulo motor 24 tics per round
     CPhidgetMotorControl_setVelocity (phid, 0, motor_speed);
     CPhidgetMotorControl_setAcceleration (phid, 0, acceleration);
 
@@ -273,11 +284,14 @@ int main(int argc, char* argv[])
     n.advertise<phidgets::motor_params>(topic_name, buffer_length);
 
     std::string cmd_vel_top = name + "/" + "cmd_vel";
-    std::string vel_top = name + "/" + "motor_vel";
+    std::string enc_req_name = name + "/" + "encoder_request";
+
 
     // receive velocity commands
     ros::Subscriber command_velocity_sub =
     n.subscribe(cmd_vel_top.data(), 1, velocityCommandCallback);
+
+    ros::ServiceServer service = n.advertiseService(enc_req_name.data(), enc_req);
 
 
 
@@ -300,10 +314,6 @@ int main(int argc, char* argv[])
         stop_motors();
         ROS_WARN("No velocity command received - " \
         "motors stopped");
-      }else {
-        double motor_speed;
-        CPhidgetMotorControl_getVelocity(phid, 0, &(motor_speed));
-        ROS_INFO("Velocity: %f",motor_speed);
       }
     }
 

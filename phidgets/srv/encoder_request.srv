@@ -1,0 +1,5 @@
+#command either 0 or 1. 0 to reset encoder to 0 and get value before reseting, 1 to get encoder value.
+int16 cmd
+---
+#response of the encoder ticks
+int16 enc

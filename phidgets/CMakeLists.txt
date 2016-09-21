@@ -52,6 +52,7 @@ include_directories(
    lidar_control.srv
    pid.srv
    servo_reference.srv
+   encoder_request.srv
  )
 
 ## Generate actions in the 'action' folder
